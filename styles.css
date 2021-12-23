@@ -1,0 +1,39 @@
+:root {
+    --all-opacity: 60%;
+  }
+  
+  #info {
+    color: white;
+    font-family: "Segoe UI", Arial, sans-serif;
+  }
+  
+  .line {
+    fill: none;
+    stroke: violet;
+    stroke-width: 1.5px;
+    stroke-opacity: var(--all-opacity);
+  }
+  
+  .tick text {
+    fill:rgb(40, 202, 49);
+    opacity: var(--all-opacity);
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: smaller;
+  }
+  .tick line {
+    stroke:rgb(40, 202, 49);
+    stroke-opacity: var(--all-opacity);
+  }
+  
+  path.domain {
+    stroke: red;
+    stroke-opacity: var(--all-opacity);
+  }
+  path.range {
+    stroke: red;
+    stroke-opacity: var(--all-opacity);
+  }
+  
+  body {
+    background-color: rgb(26, 53, 91);
+  }

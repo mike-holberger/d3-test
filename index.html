@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="styles.css">
+
+<p id="info"> </p>
+<svg></svg>
+
+<script src="//d3js.org/d3.v5.min.js"></script>
+
+<script>
+//
+// D3js DATA, SVG, AXES, LINE, ANIMATION...
+//
+var data = [], // holds price points
+    maxPoints = 500; // the number of points to show
+
+// y-axis (price scale) adjustment vars
+var center, // keep track of the 'center' point for the y axis
+    sigma, // how much data we want to display around the center point
+    startingSigmaModifier = 0.0025, // display margin as percentage of center price
+    updateSigmaModifier = 1.05; // update sigma with buffer margin so line doesnt touch axis
+
+// SVG SETUP
+// setup SVG viewBox size and margins
+var svg = d3.select("svg")
+            .attr("preserveAspectRatio", "xMinYMin meet")
+            .attr("viewBox", "0 0 960 465"),
+    margin = {top: 0, right: 0, bottom: 0, left: 40},
+    width = 900,
+    height = 450;
+
+// CHART AXES
+// add svg groups for each of the axes
+var g = svg.append("g").attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+g.append("g")
+ .attr("class", "axis axis--x")
+g.append("g")
+ .attr("class", "axis axis--y")
+
+// set the x-axis domain and range
+var x = d3.scaleLinear()
+          .domain([1, maxPoints - 2])
+          .range([0, width]);
+
+// set y-axis range... domain will be set later by incoming prices (see drawAxes)
+var y = d3.scaleLinear()
+          .range([height, 0]);
+
+// Function to draw the axes
+function drawAxes(low, high) {
+ // set the y domain
+ y.domain([low, high])
+
+ // put the x-axis at the bottom of the chart
+ d3.select('.axis--x')
+   .attr("transform", "translate(0," + y(low) + ")")
+   .call(d3.axisBottom(x));
+
+ // set y-axis
+ d3.select('.axis--y')
+   .call(d3.axisLeft(y));
+}
+
+// CHART LINE
+// function for the line that will be drawn
+var line = d3.line()
+    //.curve(d3.curveBasis)
+    .x(function(d, i) { return x(i); })
+    .y(function(d, i) { return y(d); });
+
+// Function to call the line drawing using the 'line' function
+function redrawLine() {
+  d3.select('.line')
+    .attr('d', line)
+    .attr('transform', null);
+}
+
+// SCROLL CHART LEFT ANIMATION
+// when line gets to end of chart, scroll left and shift data off array
+function tick() {
+  if (data.length < maxPoints-2) {
+    return;
+  }
+  redrawLine();
+
+  // Slide it to the left.
+  d3.active(this)
+      .attr("transform", "translate(" + x(0) + ",0)")
+    .transition()
+      .on("start", tick);
+
+  // Pop the old data point off the front.
+  data.shift();
+}
+
+// CLIPPATH
+// so we don't get a line outside our graph area when it starts moving
+g.append("g")
+    .attr("clip-path", "url(#clip)")
+  .append("path")
+    .datum(data)
+    .attr("class", "line")
+
+g.append("defs").append("clipPath")
+    .attr("id", "clip")
+  .append("rect")
+    .attr("width", width)
+    .attr("height", height);
+
+//
+// COINBASE WEBSOCKET
+//
+var wsUri = "wss://ws-feed.exchange.coinbase.com",
+    market = "XLM-USD",
+    // the subscription message to tell the websocket what kind of data we are interested in
+    subscribe = '{"type": "subscribe","product_ids": ["'+market+'"],"channels": [{"name": "ticker","product_ids": ["'+market+'"]}]}';
+
+var msgCount = 0; // count websocket msgs
+var firstMessageReceived = false;
+
+// Function that creates a WebSocket object and assigns handlers.
+function initializeWebSocket() {
+  websocket = new WebSocket(wsUri);
+  websocket.onopen = function(event) { onOpen(event) };
+  websocket.onmessage = function(event) { onMessage(event) };
+  websocket.onclose = function(event) { onClose(event) };
+  websocket.onerror = function(event) { onError(event) };
+}
+
+// Websocket opening handler
+function onOpen(event) {
+  d3.select('#info')
+    .text('Connected to the websocket! Waiting for a transaction...');
+  // send the subscription message
+  websocket.send(subscribe);
+}
+
+// Websocket receives a message handler
+function onMessage(event) {
+  msgCount++;
+  // parse JSON response
+  var point = JSON.parse(event.data);
+
+  // don't do anything if this is just a subscription alert
+  if (point['type'] != 'ticker') {
+    return;
+  }
+
+  // add this point to the data array
+  data.push(+point['price']);
+  // change page title 
+  document.title = point['price'] + " <"+market+">"
+
+  // record when the first message is received so we can draw an initial y axis
+  if (!firstMessageReceived) {
+    firstMessageReceived = true;
+    center = +point['price'];
+    sigma = center * startingSigmaModifier
+    d3.select('#info')
+      .text("Waiting for transactions...");
+    drawAxes(center-sigma, center+sigma);
+  }
+  if (msgCount > 2) {
+    d3.select('#info')
+      .text("Real time visualization of "+market+" prices");
+  }
+
+  // adjust y domain if the data goes out of the current bounds
+  if (+point['price'] > center+sigma || +point['price'] < center-sigma) {
+    // loop to find highest and lowest points
+    var highestPrice = +point['price'],
+        lowestPrice = +point['price'];
+
+    for (var i=data.length-1; i>=0; i--) {
+      if (+data[i] < lowestPrice) {
+        lowestPrice = +data[i];
+      }
+      if (+data[i] > highestPrice) {  
+        highestPrice = +data[i];
+      }
+    }
+
+    // adjust y domain to highest and lowest points, with buffer added
+    center = (highestPrice + lowestPrice) / 2;
+    sigma = ((highestPrice - lowestPrice) / 2) * updateSigmaModifier;
+    
+    drawAxes(center - sigma, center + sigma);
+  }
+
+  // redraw the line when new data gets added
+  redrawLine();
+
+  // if we have too much data, start moving the data line out of the view
+  if (data.length > maxPoints) {
+    d3.select('.line')
+      .transition()
+      .duration(2000)
+      .ease(d3.easeLinear)
+      .on("start", tick);
+  }
+}
+
+// Websocket closing handler
+function onClose(event) {
+  console.log('disconnected');
+}
+
+// Websocket error handler
+function onError(event) {
+  console.log('error: ', event.data);
+}
+
+// START stuff happening
+initializeWebSocket();
+</script>
